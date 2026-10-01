@@ -1,0 +1,152 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Platform {
+  TWITCH
+  KICK
+}
+
+enum SessionStatus {
+  ACTIVE
+  ENDED
+}
+
+enum EventType {
+  TIMEOUT
+  BAN
+  UNBAN
+  DISMISS
+  CLAIM
+  RELEASE
+}
+
+model User {
+  id                 String              @id @default(cuid())
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  displayName        String?
+  accounts           PlatformAccount[]
+  channels            ModeratorChannel[]
+  sessions            ModerationSession[]
+  events             ModerationEvent[]
+  claims             ModerationClaim[]
+  blacklist           BlacklistEntry[]
+}
+
+model PlatformAccount {
+  id                String   @id @default(cuid())
+  userId            String
+  platform          Platform
+  platformUserId    String
+  username          String
+  accessToken       String?
+  refreshToken      String?
+  tokenExpiresAt    DateTime?
+  scopes            String[]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([platform, platformUserId])
+  @@index([userId, platform])
+}
+
+model Channel {
+  id                String              @id @default(cuid())
+  platform          Platform
+  externalId        String
+  slug              String
+  displayName       String?
+  chatroomId        String?
+  isLive            Boolean             @default(false)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  moderators        ModeratorChannel[]
+  sessions          ModerationSession[]
+
+  @@unique([platform, externalId])
+  @@unique([platform, slug])
+  @@index([platform, chatroomId])
+}
+
+model ModeratorChannel {
+  id              String   @id @default(cuid())
+  userId          String
+  channelId       String
+  verified        Boolean  @default(false)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel         Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, channelId])
+  @@index([userId, active])
+}
+
+model ModerationSession {
+  id              String        @id @default(cuid())
+  userId          String
+  channelId       String
+  status          SessionStatus @default(ACTIVE)
+  startedAt       DateTime      @default(now())
+  endedAt         DateTime?
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel         Channel       @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  events          ModerationEvent[]
+  claims          ModerationClaim[]
+
+  @@index([userId, status])
+  @@index([channelId, status])
+}
+
+model ModerationEvent {
+  id              String         @id @default(cuid())
+  sessionId       String
+  userId          String
+  platform        Platform
+  channelSlug     String
+  targetUsername  String
+  reason          String
+  eventType       EventType
+  metadata        Json?
+  createdAt       DateTime       @default(now())
+  session         ModerationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@index([targetUsername, createdAt])
+}
+
+model ModerationClaim {
+  id              String            @id @default(cuid())
+  sessionId       String
+  ticketId        String
+  userId          String
+  moderatorName   String
+  claimedAt       DateTime          @default(now())
+  releasedAt      DateTime?
+  session         ModerationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, ticketId])
+  @@index([sessionId, releasedAt])
+}
+
+model BlacklistEntry {
+  id          String   @id @default(cuid())
+  userId      String
+  value       String
+  source      String   @default("local")
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, value])
+  @@index([userId, source])
+}

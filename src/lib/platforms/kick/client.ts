@@ -20,7 +20,9 @@ export interface KickChannel {
   broadcaster_user_id: number;
   slug: string;
   chatroom_id?: number | string;
-  stream?: { is_live?: boolean };
+  stream?: {
+    is_live?: boolean;
+  };
 }
 
 interface KickApiResponse<T> {
@@ -28,8 +30,12 @@ interface KickApiResponse<T> {
   message?: string;
 }
 
-export async function exchangeKickCode(code: string, verifier: string): Promise<KickTokenResponse> {
+export async function exchangeKickCode(
+  code: string,
+  verifier: string,
+): Promise<KickTokenResponse> {
   const config = assertOAuthConfig("kick");
+
   const body = new URLSearchParams({
     client_id: config.clientId,
     client_secret: config.clientSecret,
@@ -41,65 +47,148 @@ export async function exchangeKickCode(code: string, verifier: string): Promise<
 
   const response = await fetch(config.tokenUrl, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
     body,
     cache: "no-store",
   });
 
   if (!response.ok) {
+    const errorBody = await response.text().catch(() => "");
+
+    console.error("Kick token exchange failed:", {
+      status: response.status,
+      body: errorBody,
+    });
+
     throw new Error(`KICK_TOKEN_EXCHANGE_FAILED:${response.status}`);
   }
 
   return response.json() as Promise<KickTokenResponse>;
 }
 
-async function kickRequest<T>(accessToken: string, path: string): Promise<T> {
+async function kickRequest<T>(
+  accessToken: string,
+  path: string,
+): Promise<T> {
   const response = await fetch(`${KICK_API}${path}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
     cache: "no-store",
   });
 
   if (!response.ok) {
+    const errorBody = await response.text().catch(() => "");
+
+    console.error("Kick API request failed:", {
+      status: response.status,
+      path,
+      body: errorBody,
+    });
+
     throw new Error(`KICK_API_ERROR:${response.status}`);
   }
 
   return response.json() as Promise<T>;
 }
 
-export async function getKickCurrentUser(accessToken: string): Promise<KickUser> {
-  const result = await kickRequest<KickApiResponse<KickUser>>(accessToken, "/users");
+export async function getKickCurrentUser(
+  accessToken: string,
+): Promise<KickUser> {
+  const result = await kickRequest<KickApiResponse<KickUser>>(
+    accessToken,
+    "/users",
+  );
+
   const user = result.data[0];
-  if (!user) throw new Error("KICK_USER_NOT_FOUND");
+
+  if (!user) {
+    throw new Error("KICK_USER_NOT_FOUND");
+  }
+
   return user;
 }
 
-export async function getKickChatroomId(slug: string): Promise<string | null> {
-  const response = await fetch(`https://kick.com/api/v2/channels/${encodeURIComponent(slug)}`, { cache: "no-store" });
-  if (!response.ok) return null;
-  const body = await response.json() as { chatroom?: { id?: number | string; chatroom_id?: number | string } };
-  const id = body.chatroom?.id ?? body.chatroom?.chatroom_id;
+export async function getKickChatroomId(
+  slug: string,
+): Promise<string | null> {
+  const response = await fetch(
+    `https://kick.com/api/v2/channels/${encodeURIComponent(slug)}`,
+    {
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const body = (await response.json()) as {
+    chatroom?: {
+      id?: number | string;
+      chatroom_id?: number | string;
+    };
+  };
+
+  const id =
+    body.chatroom?.id ??
+    body.chatroom?.chatroom_id;
+
   return id === undefined ? null : String(id);
 }
 
-export async function getKickChannelBySlug(accessToken: string, slug: string): Promise<KickChannel | null> {
+export async function getKickChannelBySlug(
+  accessToken: string,
+  slug: string,
+): Promise<KickChannel | null> {
   const result = await kickRequest<KickApiResponse<KickChannel>>(
-  accessToken,
-  `/channels?slug=${encodeURIComponent(slug)}`
-);
+    accessToken,
+    `/channels?slug=${encodeURIComponent(slug)}`,
+  );
+
   const channel = result.data[0];
-  if (!channel) return null;
-  if (!channel.chatroom_id) channel.chatroom_id = await getKickChatroomId(channel.slug) ?? undefined;
+
+  if (!channel) {
+    return null;
+  }
+
+  // A API oficial pode não retornar o chatroom_id.
+  // Nesse caso usamos o endpoint público da Kick como fallback.
+  if (!channel.chatroom_id) {
+    channel.chatroom_id =
+      (await getKickChatroomId(channel.slug)) ?? undefined;
+  }
+
   return channel;
 }
 
-export async function validateKickToken(accessToken: string): Promise<boolean> {
-  const response = await fetch("https://id.kick.com/oauth/token/introspect", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${accessToken}` },
-    cache: "no-store",
-  });
+export async function validateKickToken(
+  accessToken: string,
+): Promise<boolean> {
+  const response = await fetch(
+    "https://id.kick.com/oauth/token/introspect",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      cache: "no-store",
+    },
+  );
 
-  if (!response.ok) return false;
-  const body = (await response.json()) as { data?: { active?: boolean } };
+  if (!response.ok) {
+    return false;
+  }
+
+  const body = (await response.json()) as {
+    data?: {
+      active?: boolean;
+    };
+  };
+
   return body.data?.active === true;
 }

@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, AlertTriangle, Bell, Clipboard, ExternalLink,
+  Activity, AlertTriangle, Bell, Clipboard, ExternalLink, Home,
   Flame, Link2, Lock, MonitorPlay, Radio, ShieldAlert, Timer, Undo2,
   Users, Wifi, WifiOff, X, Volume2, VolumeX, Download
 } from "lucide-react";
+import Link from "next/link";
 import type { IngestionChannel } from "@/lib/ingestion/types";
 import type { PipelineContext } from "@/lib/pipeline/types";
 import type { DetectionResult } from "@/lib/pipeline/types";
@@ -13,6 +14,7 @@ import { useModSentryIngestion } from "@/hooks/use-modsentry-ingestion";
 import { requestNotificationPermission } from "@/lib/pipeline/alerts";
 import { useModSentrySync } from "@/hooks/use-modsentry-sync";
 import { useRemoteBlacklist } from "@/hooks/use-remote-blacklist";
+import { ChannelSelector } from "@/components/dashboard/channel-selector";
 
 const REASONS = ["Spam / Flood", "Auto-promoção", "Discurso de Ódio", "Link Suspeito", "Spoiler"];
 
@@ -29,6 +31,7 @@ function commandFor(platform: "twitch" | "kick", target: string, action: "timeou
 }
 
 export function TacticalDashboard({ channels, moderatorName, context }: Props) {
+  const [activeChannels, setActiveChannels] = useState<IngestionChannel[]>(() => channels.slice(0, 2));
   const remoteBlacklist = useRemoteBlacklist();
   const pipelineContext = useMemo<PipelineContext>(() => ({
     moderatorUsernames: context?.moderatorUsernames ?? [],
@@ -37,7 +40,7 @@ export function TacticalDashboard({ channels, moderatorName, context }: Props) {
     cooldownSeconds: context?.cooldownSeconds,
     blacklistTerms: remoteBlacklist.terms,
   }), [context, remoteBlacklist.terms]);
-  const { messages, states, detections, error, clearMessages } = useModSentryIngestion(channels, pipelineContext);
+  const { messages, states, detections, error, clearMessages } = useModSentryIngestion(activeChannels, pipelineContext);
   const [channelFilter, setChannelFilter] = useState("all");
   const [reason, setReason] = useState(REASONS[0]);
   const [alertsEnabled, setAlertsEnabled] = useState(true);
@@ -61,7 +64,7 @@ export function TacticalDashboard({ channels, moderatorName, context }: Props) {
   }, [undo]);
 
   const connected = states.filter((s) => s.status === "connected").length;
-  const syncChannelKeys = useMemo(() => channels.map((c) => `${c.platform}:${c.channelSlug}`), [channels]);
+  const syncChannelKeys = useMemo(() => activeChannels.map((c) => `${c.platform}:${c.channelSlug}`), [activeChannels]);
   const handleSyncEvent = useCallback((event: { type: "CLAIM_TICKET" | "RELEASE_TICKET"; ticketId: string; moderatorName?: string }) => {
     setClaimed((current) => event.type === "RELEASE_TICKET" ? Object.fromEntries(Object.entries(current).filter(([id]) => id !== event.ticketId)) : { ...current, [event.ticketId]: event.moderatorName ?? "Moderator" });
   }, []);
@@ -174,7 +177,7 @@ export function TacticalDashboard({ channels, moderatorName, context }: Props) {
   };
 
   const enableNotifications = async () => { if (alertsEnabled) await requestNotificationPermission(); setAlertsEnabled((v) => !v); };
-  const channelsForFilter = [...new Map(channels.map((c) => [`${c.platform}:${c.channelSlug}`, c])).values()];
+  const channelsForFilter = [...new Map(activeChannels.map((c) => [`${c.platform}:${c.channelSlug}`, c])).values()];
   const selectedChannel = pip ? channelsForFilter.find((c) => `${c.platform}:${c.channelSlug}` === pip) : undefined;
 
   return (
@@ -182,22 +185,30 @@ export function TacticalDashboard({ channels, moderatorName, context }: Props) {
       <header className="sticky top-0 z-30 border-b border-modsentry-border bg-modsentry-background/95 px-5 py-3 backdrop-blur">
         <div className="mx-auto flex max-w-[1700px] items-center justify-between gap-4">
           <div className="flex items-center gap-3"><div className="grid size-9 place-items-center rounded-lg bg-modsentry-kick text-black"><ShieldAlert className="size-4" /></div><div><div className="font-mono text-sm font-bold tracking-[.2em]">MODSENTRY</div><div className="font-mono text-[9px] text-zinc-600">TACTICAL MODERATION COMMAND CENTER</div></div></div>
-          <div className="hidden items-center gap-2 lg:flex">
-            <Hud label="CHANNELS" value={`${connected}/${channels.length}`} icon={<Radio className="size-3" />} />
+          <div className="flex items-center gap-2">
+            <Hud label="CHANNELS" value={`${connected}/${activeChannels.length}`} icon={<Radio className="size-3" />} />
             <div className={`flex items-center gap-2 rounded-xl border px-3 py-2 font-mono ${spike ? "border-modsentry-kick/60" : "border-modsentry-border"}`}><Activity className={`size-3 ${spike ? "text-modsentry-kick" : "text-zinc-500"}`} /><span className="text-[8px] text-zinc-500">MPS</span><span className="text-[10px] text-zinc-300">{mps} msg/s</span><div className="flex h-4 items-end gap-px">{sparkline.slice(-12).map((height, i) => <span key={i} className={`w-1 rounded-sm ${spike ? "bg-modsentry-kick" : "bg-zinc-600"}`} style={{ height: `${height}%` }} />)}</div></div>
             <button onClick={() => setPipOpen((v) => !v)} className="flex items-center gap-2 rounded-xl border border-modsentry-border px-3 py-2 font-mono text-[9px] text-zinc-400 hover:text-white"><MonitorPlay className="size-3" /> PIP</button>
             <Hud label="SYNC" value="LOCAL" icon={<Wifi className="size-3" />} />
-            <span className="rounded-xl border border-modsentry-border px-3 py-2 font-mono text-[9px] text-zinc-400">SYNC · REALTIME</span><span className="rounded-xl border border-modsentry-border px-3 py-2 font-mono text-[9px] text-zinc-400">@{moderatorName}</span>
+            <span className="rounded-xl border border-modsentry-border px-3 py-2 font-mono text-[9px] text-zinc-400">SYNC · REALTIME</span><span className="rounded-xl border border-modsentry-border px-3 py-2 font-mono text-[9px] text-zinc-400">@{moderatorName}</span><Link
+  href="/"
+  className="flex items-center gap-2 rounded-xl border border-modsentry-border px-3 py-2 font-mono text-[9px] text-zinc-400 transition hover:border-modsentry-kick/30 hover:text-modsentry-kick"
+>
+  <Home className="size-3" /> HOME
+</Link>
           </div>
         </div>
       </header>
 
       <div className="mx-auto max-w-[1700px] p-4 md:p-5">
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-modsentry-border bg-modsentry-surface p-3">
+        <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-modsentry-border bg-modsentry-surface p-3">
+          <ChannelSelector channels={channels} activeChannels={activeChannels} onChange={setActiveChannels} />
+          <div className="flex flex-wrap items-center gap-2">
           <select value={channelFilter} onChange={(e) => setChannelFilter(e.target.value)} className="rounded-full border border-modsentry-border bg-black/20 px-4 py-2 font-mono text-[10px] text-zinc-300 outline-none"><option value="all">TODOS OS CANAIS</option>{channelsForFilter.map((c) => <option key={`${c.platform}:${c.channelSlug}`} value={`${c.platform}:${c.channelSlug}`}>{c.platform.toUpperCase()} / {c.channelSlug}</option>)}</select>
           <select value={reason} onChange={(e) => setReason(e.target.value)} className="rounded-full border border-modsentry-border bg-black/20 px-4 py-2 font-mono text-[10px] text-zinc-300 outline-none">{REASONS.map((r) => <option key={r}>{r}</option>)}</select>
           <button onClick={enableNotifications} className="ml-auto flex items-center gap-2 rounded-full border border-modsentry-kick/30 px-4 py-2 font-mono text-[10px] text-modsentry-kick">{alertsEnabled ? <Volume2 className="size-3" /> : <VolumeX className="size-3" />} ALERTAS · 15S</button>
           <span className="font-mono text-[9px] text-zinc-700">KEYBINDS 1 DISPENSAR · 2 TIMEOUT · 3 BAN</span>
+          </div>
         </div>
 
         <div className="mb-4 grid gap-3 lg:grid-cols-[1fr_auto] rounded-2xl border border-modsentry-border bg-modsentry-surface p-3">

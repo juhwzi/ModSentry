@@ -10,7 +10,7 @@ export default async function DashboardPage() {
     prisma.user.findUnique({ where: { id: userId }, select: { displayName: true } }),
     prisma.moderatorChannel.findMany({
       where: { userId, active: true },
-      select: { channel: { select: { id: true, platform: true, slug: true, externalId: true, chatroomId: true } } },
+      select: { channel: { select: { id: true, platform: true, slug: true, externalId: true, chatroomId: true, displayName: true, isLive: true } } },
       orderBy: { channel: { slug: "asc" } },
     }),
   ]);
